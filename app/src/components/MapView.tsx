@@ -86,7 +86,19 @@ const MapView: React.FC = () => {
             {
                 id: 10, type: "api", name_en: "air4thai", name: "รายงานสภาพอากาศ", path: "http://air4thai.com/forweb/getAQI_JSON.php", geojson: null, visible: true, icon: '/assets/images/air.png', minzoom: 15, maxzoom: 22
             },
+            {
+                id: 11,
+                type: "arcgis",
+                name_en: "bma_basemap_arcgis",
+                name: "BMAGI Basemap 2564",
+                path: "",
+                geojson: null,
+                visible: false,
+                icon: null,
+                minzoom: 0,
+                maxzoom: 22,
 
+            }
 
         ];
         const loadedLayers: any[] = [];
