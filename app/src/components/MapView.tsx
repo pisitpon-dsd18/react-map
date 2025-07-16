@@ -39,6 +39,15 @@ const MapView: React.FC = () => {
     const map = useRef<maplibregl.Map | null>(null);
     const [airtype, setAirType] = useState<any>("AQI");
 
+    const [mapStyle, setMapStyle] = useState<any>(baseMapStyles[0].style);
+    const [selectedBasemap, setSelectedBasemap] = useState<any>("Google Hybrid");
+    const [loadingProgress, setLoadingProgress] = useState<{ loaded: number, total: number }>({
+        loaded: 0,
+        total: 0
+    });
+
+
+
 
     const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
     const getColorByIndex = (i: number) => {
@@ -102,7 +111,7 @@ const MapView: React.FC = () => {
 
         ];
         const loadedLayers: any[] = [];
-
+        setLoadingProgress({ loaded: 0, total: layers.length });
         for (const [index, layer] of layers.entries()) {
 
             try {
@@ -145,6 +154,7 @@ const MapView: React.FC = () => {
 
                 const fullLayer = { ...layer, geojson };
                 loadedLayers.push(fullLayer);
+                setLoadingProgress({ loaded: index + 1, total: layers.length });
 
             } catch (err) {
                 console.error(`Failed to load ${layer.name_en}:`, err);
@@ -547,7 +557,7 @@ const MapView: React.FC = () => {
             container: mapContainer.current!,
             style: baseMapStyles[0].style,
             center: [100.577982, 13.845845],
-            zoom: 10,
+            zoom: 15,
         });
 
         map.current = mapInstance;
@@ -564,12 +574,143 @@ const MapView: React.FC = () => {
         // return () => mapInstance.remove();
     }, []);
 
+    const handleBasemapChange = (basemapName: string) => {
+        if (!map.current) return;
+
+        const basemap: any = baseMapStyles.find(b => b.name === basemapName);
+        if (!basemap?.style) return;
+
+        setSelectedBasemap(basemapName);
+        setMapStyle(basemap.style);
+        map.current.setStyle(basemap.style);
+        map.current.once('idle', async () => {
+            GISData.forEach(layer => {
+                if (layer.geojson || layer.type === 'arcgis') {
+                    addLayer(layer, map.current!);
+                }
+            });;
+        });
+    };
+    async function cachedIcon() {
+        if (!map.current) return;
+
+        await Promise.all(
+            Object.entries(loadedImages.current).map(([id, url]) =>
+                new Promise<void>((resolve, reject) => {
+                    if (map.current!.hasImage(id)) return resolve();          // sprite already has it
+
+                    map.current!.loadImage(url)
+                        .then(img => {
+                            map.current!.addImage(id, img.data as ImageBitmap, { pixelRatio: 1 });
+                            resolve();
+                        })
+                        .catch(reject);
+                }),
+            ),
+        );
+    }
+    const toggleLayerVisibility = (layerId: number) => {
+        setGISData((prev) =>
+            prev.map((layer) => {
+                if (layer.id === layerId) {
+                    const newVisible = !layer.visible;
+
+                    if (layer.name_en === "air4thai") {
+                        if (newVisible) {
+                            showAir4ThaiMarkers(layer);
+                        } else {
+                            hideAir4ThaiMarkers();
+                        }
+                    } else {
+                        const mapLayerId = `${layer.name_en}_${layer.id}_layer`;
+                        if (map.current?.getLayer(mapLayerId)) {
+                            map.current.setLayoutProperty(
+                                mapLayerId,
+                                "visibility",
+                                newVisible ? "visible" : "none"
+                            );
+                        }
+                    }
+
+                    return { ...layer, visible: newVisible };
+                }
+                return layer;
+            })
+        );
+    };
+
+    const showAir4ThaiMarkers = (layer: any) => {
+        addAir4ThaiMarkers(layer);
+    };
+
+    const hideAir4ThaiMarkers = () => {
+        air4thaiMarkersRef.current.forEach(marker => marker.remove());
+        air4thaiMarkersRef.current = [];
+    };
+
+
+
+
+    const handleAirTypeChange = (type: string) => {
+        setAirType(type);
+        refreshAir4ThaiLayer(type);
+    };
+
+    const refreshAir4ThaiLayer = (type: string) => {
+        const layer = GISData.find(l => l.name_en === "air4thai");
+        if (!layer || !layer.visible) return;
+        air4thaiMarkersRef.current.forEach(marker => marker.remove());
+        air4thaiMarkersRef.current = [];
+
+        addAir4ThaiMarkers(layer, type);
+    };
+
+
     return (
         <div className="map-view-wrapper" style={{ display: "flex" }}>
             <div
                 ref={mapContainer}
                 style={{ width: "100%", height: "100vh" }}
             ></div>
+            <div className="layer-control" style={{ padding: "10px" }}>
+                <div>
+                    {GISData.map((layer) => (
+                        <div key={layer.id}>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={layer.visible}
+                                    onChange={() => toggleLayerVisibility(layer.id)}
+                                />
+                                {layer.name}
+                            </label>
+                            {layer.name_en == "air4thai" && (
+                                <select
+                                    value={airtype}
+                                    onChange={(e) => {
+                                        const newAirType = e.target.value;
+                                        handleAirTypeChange(newAirType)
+                                    }}
+                                >
+                                    {AirTypeList.map((item) => (
+                                        <option key={item} value={item}>
+                                            {item}
+                                        </option>
+                                    ))}
+                                </select>
+
+                            )}
+                        </div>
+                    ))}
+                    <div style={{ marginTop: 10 }}>
+                        {loadingProgress.loaded < loadingProgress.total && (
+                            <div>
+                                Loading GIS Data… {loadingProgress.loaded} / {loadingProgress.total}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
     )
 };
